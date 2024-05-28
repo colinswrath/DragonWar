@@ -3,6 +3,7 @@
 DLL for Dragon War - A Dragon Overhaul
 
 - [Nexus](https://www.nexusmods.com/skyrimspecialedition/mods/51310)
+- [NG DLL](https://www.nexusmods.com/skyrimspecialedition/mods/120506/)
 
 ## Requirements
 
