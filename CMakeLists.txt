@@ -7,7 +7,7 @@ project(
   LANGUAGES CXX
 )
 
-#Enable for 1130 changes
+# Enable for 1130 changes
 set(ENABLE_SKYRIMAE1130 ON)
 
 set(CMAKE_CXX_STANDARD 23)
@@ -16,14 +16,13 @@ set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_DEBUG OFF)
 set(CMAKE_OPTIMIZE_DEPENDENCIES ON)
 set(SKSE_SUPPORT_XBYAK ON)
-set(ENABLE_SKYRIM_VR OFF)
 
 include(GNUInstallDirs)
 
 configure_file(
-	${CMAKE_CURRENT_SOURCE_DIR}/cmake/Version.h.in
-	${CMAKE_CURRENT_BINARY_DIR}/include/Version.h
-	@ONLY
+  ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Version.h.in
+  ${CMAKE_CURRENT_BINARY_DIR}/include/Version.h
+  @ONLY
 )
 
 configure_file(
@@ -41,7 +40,6 @@ file(
   ${CMAKE_CURRENT_SOURCE_DIR}/include/*.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/*.hpp
   ${CMAKE_CURRENT_BINARY_DIR}/include/Version.h
-
 )
 list(REMOVE_ITEM headers ${CMAKE_CURRENT_SOURCE_DIR}/include/PCH.h)
 
@@ -74,7 +72,7 @@ add_library(${PROJECT_NAME}::${PROJECT_NAME} ALIAS ${PROJECT_NAME})
 
 find_path(SIMPLEINI_INCLUDE_DIRS "SimpleIni.h")
 
-set (SOURCES ${headers} ${sources})
+set(SOURCES ${headers} ${sources})
 
 # target_link_libraries(
 # ${PROJECT_NAME}
@@ -117,7 +115,7 @@ else()
 endif()
 
 if(ENABLE_SKYRIMAE1130)
-	message("\tBuilding 1130")
+  message("\tBuilding 1130")
   set(BUILD_NAME ${BUILD_NAME}1130)
 endif()
 

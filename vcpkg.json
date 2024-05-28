@@ -3,6 +3,7 @@
   "name": "dragon-war",
   "version-semver": "1.5.0",
   "dependencies": [
+    "directxtk",
     "fmt",
     "spdlog",
     "rapidcsv",
