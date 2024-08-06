@@ -77,33 +77,52 @@ namespace Hooks
                 logger::debug("-----------------------");
                 logger::debug("Actor update {}", a_actor->GetName());
 
-                auto combatTarget = a_actor->GetActorRuntimeData().currentCombatTarget;
+                auto* formLoader = FormLoader::GetSingleton();
 
-                if (combatTarget) {
-                    logger::debug("Combat target: {}", combatTarget.get()->GetName());
+                bool expected = false;
+                if (formLoader->isRunning.compare_exchange_strong(expected, true)) {
+                    auto combatTarget = a_actor->GetActorRuntimeData().currentCombatTarget;
 
-                    if (const auto process = a_actor->GetActorRuntimeData().currentProcess) {
-                        auto currentPackage = process->currentPackage.data;
+                    if (combatTarget) {
+                        logger::debug("Combat target: {}", combatTarget.get()->GetName());
 
-                        auto package = process->currentPackage.package;
-                        if (package) {
-                            logger::debug("Current package {}", intToHexString(package->GetFormID()));
-                        }
+                        if (const auto process = a_actor->GetActorRuntimeData().currentProcess) {
+                            auto currentPackage = process->currentPackage.data;
 
-                        if (process->currentPackage.target && process->currentPackage.target.get()->GetFormID() == a_actor->GetFormID()) {
-                            logger::debug("Package target was self, not swapping");
-                        }
-                        else {
-                            if (process->currentPackage.target) {
-                                logger::debug("Package target was {}", process->currentPackage.target.get()->GetName());
+                            auto package = process->currentPackage.package;
+                            if (package) {
+                                logger::debug("Current package {}", intToHexString(package->GetFormID()));
                             }
 
-                            FormLoader::GetSingleton()->xMarker->MoveTo(combatTarget.get().get());                          
+                            if (process->currentPackage.target && process->currentPackage.target.get()->GetFormID() == a_actor->GetFormID()) {
+                                logger::debug("Package target was self, not swapping");
+                            }
+                            else {
+                                if (process->currentPackage.target) {
+                                    logger::debug("Package target was {}", process->currentPackage.target.get()->GetName());
+                                }
+
+                                auto xMarker = formLoader->xMarker;
+
+                                if (xMarker) {
+                                    auto targetActorPtr = combatTarget.get();
+                                    if (targetActorPtr != nullptr) {
+                                        auto targetActor = targetActorPtr.get();
+                                        if (targetActor) {
+                                            xMarker->MoveTo(targetActor);
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
+                    else {
+                        logger::debug("No Combat target");
+                    }
+                    formLoader->isRunning = false;
                 }
                 else {
-                    logger::debug("No Combat target");
+                    logger::debug("Xmarker movement already in progress. Skipping");
                 }
             }
 

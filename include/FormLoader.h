@@ -13,6 +13,8 @@ public:
     RE::TESObjectREFR*  xMarker;
     std::vector<RE::TESCombatStyle*> combatStylePool;
 
+    std::atomic<bool> isRunning{false};
+
     bool LoadAllForms()
     {
         const auto dragonWarEspName = "DragonWar.esp";
