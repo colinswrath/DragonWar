@@ -74,7 +74,11 @@
       "name": "build-release-msvc",
       "inherits": ["base", "vcpkg", "win32-unicode", "x64", "msvc"],
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "RelWithDebInfo"
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "BUILD_SKYRIM": true,
+        "ENABLE_SKYRIM_AE": "ON",
+        "ENABLE_SKYRIM_SE": "ON",
+        "ENABLE_SKYRIM_VR": "ON"
       },
       "displayName": "Release",
       "description": "Optimized release build.",
