@@ -1,10 +1,60 @@
 #pragma once
 #include "FormLoader.h"
+#include "util/RecentShoutTracker.h"
 
 // Credit note: po3 for Offensive spell AI in po3 tweaks.
 // Code isnt the same, but this hooks the same vtable function, and I used it as a reference to do so.
 namespace Hooks
 {
+    struct ExecuteHandler
+    {
+        static bool thunk(RE::VoiceSpellFireHandler* a_this, RE::Actor& a_actor, const RE::BSFixedString& a_tag)
+        {
+            const auto result = func(a_this, a_actor, a_tag);
+
+            if (result && !a_actor.IsPlayerRef()) {
+                if (const auto shout = a_actor.GetCurrentShout()) {
+                    logger::info("{} just used {}", a_actor.GetName(), shout->GetName());
+
+                    auto variationSpell01 = shout ? shout->variations[0].spell : nullptr;
+                    if (variationSpell01 && variationSpell01->HasKeyword(FormLoader::GetSingleton()->noShoutKeyword)) {
+
+                        RE::Actor* actor   = &a_actor;
+                        auto       handle  = actor->CreateRefHandle();
+
+                        const auto currentTime = RE::ProcessLists::GetSingleton()->GetSystemTimeClock();
+                        auto&      tracker = RecentShoutTracker::GetSingleton();
+                        tracker.RegisterShout(actor, shout, currentTime);
+
+                        auto controller = a_actor.GetActorRuntimeData().combatController;
+                        auto equipped = controller->inventory->equippedItems;
+                        auto& invArray   = controller->inventory->inventoryItems[0];
+
+                        for (auto it = invArray.begin(); it != invArray.end();) {
+                            auto& invItem = *it;
+                            if (invItem && invItem->GetType() == RE::CombatInventoryItem::TYPE::kShout) {
+                                auto invShout = invItem->item->As<RE::TESShout>();
+
+                                if (invShout->GetFormID() == shout->GetFormID()) {
+                                    logger::debug("Unequipped {}", shout->GetName());
+                                    invItem->Unequip(controller);
+                                    invArray.erase(it);
+                                    break;
+                                }
+                            }
+                            ++it;
+                        }
+                    }
+                }
+            }
+
+            return result;
+        }
+
+        inline static REL::Relocation<decltype(thunk)> func;
+        inline static std::size_t                      idx{ 0x1 };
+    };
+
     template <class T>
     class CheckShouldEquip
     {
@@ -24,18 +74,30 @@ namespace Hooks
         {
             auto result = func(a_this, a_controller);
 
+            if (result && a_this->IsValid() && a_controller) {
+                auto attacker = a_controller->handleCount && a_controller->handleCount > 0 ? a_controller->cachedAttacker : nullptr;
 
-            if (result && a_this->IsValid()) {
-                const auto attacker = a_controller->handleCount ? a_controller->cachedAttacker : a_controller->attackerHandle.get();
+                if (!attacker)
+                {
+                    attacker = a_controller->attackerHandle.get();
+                }
+
                 if (attacker && !attacker->IsPlayer() && attacker->HasKeywordString("ActorTypeDragon"sv)) {
                     logger::debug("-----------------------");
                     logger::debug("Check equip {}", attacker->GetName());
                     auto shout = a_this->item->As<RE::TESShout>();
 
                     auto variationSpell01 = shout ? shout->variations[0].spell : nullptr;
-
                     if (variationSpell01 && variationSpell01->HasKeyword(FormLoader::GetSingleton()->noShoutKeyword)) {
-                        return false;
+                        logger::debug("Check timeout {}",variationSpell01->GetName());
+
+                        auto& tracker = RecentShoutTracker::GetSingleton();
+
+                        auto entry = tracker.GetEntry(attacker.get(), shout);
+                        if (entry) {
+                            logger::debug("Shout {} entry under cooldown. Do not equip",shout->GetName());
+                            return false;
+                        }
                     }
 
                 }
@@ -49,8 +111,6 @@ namespace Hooks
 
     class OnActorUpdate
     {
-
-            //REL::Relocation<std::uintptr_t> EvaluateProcessHook{ REL::RelocationID(36407, 37401), REL::Relocate(0x44, 0x44) };
 
     public:
         static void Install()
@@ -76,53 +136,82 @@ namespace Hooks
             if (a_actor && !a_actor->IsPlayer() && a_actor->HasKeywordString("ActorTypeDragon"sv)) {
                 logger::debug("-----------------------");
                 logger::debug("Actor update {}", a_actor->GetName());
+                logger::debug("Actor update formId {}", a_actor->GetFormID());
 
-                auto* formLoader = FormLoader::GetSingleton();
+                //TODO IDEA
+                //Search combat inventory, if shout is present and meets conditions then cast spell immediate. Does that trigger the shout event?
+                //Target should just be combat target
 
-                bool expected = false;
-                if (formLoader->isRunning.compare_exchange_strong(expected, true)) {
-                    auto combatTarget = a_actor->GetActorRuntimeData().currentCombatTarget;
+                //auto* formLoader = FormLoader::GetSingleton();
+                auto* combatGroup = a_actor->GetCombatGroup();
+                auto target      = a_actor->GetActorRuntimeData().currentCombatTarget;
+                auto  controller  = a_actor->GetActorRuntimeData().combatController;
+                //TEST ALWAYS TARGET PLAYER
+                /*if (combatGroup && target) {
 
-                    if (combatTarget) {
-                        logger::debug("Combat target: {}", combatTarget.get()->GetName());
+                    logger::debug("Current target before {}", target.get().get()->GetName());
 
-                        if (const auto process = a_actor->GetActorRuntimeData().currentProcess) {
-                            auto currentPackage = process->currentPackage.data;
-
-                            auto package = process->currentPackage.package;
-                            if (package) {
-                                logger::debug("Current package {}", intToHexString(package->GetFormID()));
+                    for (auto it = combatGroup->targets.begin(); it != combatGroup->targets.end(); ++it) {
+                        if (it->targetHandle && it->targetHandle.get().get()) {
+                            logger::debug("Check target: {}", it->targetHandle.get().get()->GetName());
+                            if (it->targetHandle.get().get()->IsPlayerRef()) {
+                                logger::debug("Updating target to player");
+                                a_actor->GetActorRuntimeData().currentCombatTarget = it->targetHandle.get().get();
+                                controller->targetHandle                           = it->targetHandle;
+                                controller->cachedTarget                           = it->targetHandle.get();
                             }
+                            break;
+                        }
+                        continue;
+                    }
+                    target = a_actor->GetActorRuntimeData().currentCombatTarget;
+                    if (target) {
+                        logger::debug("Current target after {}", a_actor->GetActorRuntimeData().currentCombatTarget.get().get()->GetName());
+                    }
+                }*/
 
-                            if (process->currentPackage.target && process->currentPackage.target.get()->GetFormID() == a_actor->GetFormID()) {
-                                logger::debug("Package target was self, not swapping");
-                            }
-                            else {
-                                if (process->currentPackage.target) {
-                                    logger::debug("Package target was {}", process->currentPackage.target.get()->GetName());
-                                }
+                //Iterate over stored cached
+                auto& tracker = RecentShoutTracker::GetSingleton();
+                bool cooldownExpired = tracker.UpdateActorShouts(a_actor);
 
-                                auto xMarker = formLoader->xMarker;
+                controller = a_actor->GetActorRuntimeData().combatController;
+                
+                if (controller) {
 
-                                if (xMarker) {
-                                    auto targetActorPtr = combatTarget.get();
-                                    if (targetActorPtr != nullptr) {
-                                        auto targetActor = targetActorPtr.get();
-                                        if (targetActor) {
-                                            xMarker->MoveTo(targetActor);
-                                        }
-                                    }
-                                }
-                            }
+                    auto equipped = controller->inventory->equippedItems;
+
+                    for (const auto item : equipped) {
+                        if (item.item && item.item->GetType() == RE::CombatInventoryItem::TYPE::kShout) {
+                            logger::debug("Equipped shout {} - Score: {}", item.item.get()->item->GetName(), item.item.get()->itemScore);
                         }
                     }
-                    else {
-                        logger::debug("No Combat target");
+
+                    for (auto& invArray : controller->inventory->inventoryItems) {
+                        for (auto it = invArray.begin(); it != invArray.end();) {
+                            auto& invItem = *it;
+                            if (invItem && invItem->GetType() == RE::CombatInventoryItem::TYPE::kShout) {
+                                auto invShout = invItem->item->As<RE::TESShout>();
+                                logger::debug("Inventory: {} - Score: {}", invShout->GetName(), invItem->itemScore);
+
+                                auto variationSpell01 = invShout ? invShout->variations[0].spell : nullptr;
+                                if (variationSpell01 && variationSpell01->HasKeyword(FormLoader::GetSingleton()->noShoutKeyword)) {
+                                    auto shoutCaster = a_actor->GetActorRuntimeData().magicCasters[RE::Actor::SlotTypes::kPowerOrShout];
+                                    
+                                    //shoutCaster->CastSpellImmediate(invShout->variations[RE::TESShout::VariationIDs::kThree].spell, false, controller->cachedTarget.get(), 1.0f, false, 0.0f, a_actor);
+                                    invItem->Equip(controller);
+                                }
+                            }
+                            ++it;
+                        }
                     }
-                    formLoader->isRunning = false;
                 }
-                else {
-                    logger::debug("Xmarker movement already in progress. Skipping");
+
+                if (cooldownExpired) {
+                    controller = a_actor->GetActorRuntimeData().combatController;
+                    if (controller) {
+                        logger::info("Detected cooldown expire. Trigger inventory rebuild");
+                        controller->inventory->dirty = true;
+                    }
                 }
             }
 
@@ -150,8 +239,9 @@ namespace Hooks
         CheckShouldEquip<RE::CombatMagicCasterParalyze>::Install(RE::VTABLE_CombatInventoryItemMagicT_CombatInventoryItemShout_CombatMagicCasterParalyze_[0]);
         CheckShouldEquip<RE::CombatMagicCasterWard>::Install(RE::VTABLE_CombatInventoryItemMagicT_CombatInventoryItemShout_CombatMagicCasterWard_[0]);
 
-        logger::info("\t\tInstalled magic caster vtable hooks"sv);
 
+        logger::info("\t\tInstalled magic caster vtable hooks"sv);
+        stl::write_vfunc<RE::VoiceSpellFireHandler, ExecuteHandler>();
         OnActorUpdate::Install();
         logger::info("Installed Actor Update hook");
     }
